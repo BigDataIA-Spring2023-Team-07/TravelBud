@@ -6,13 +6,17 @@ import os
 import airportsdata
 from datetime import datetime,timedelta
 import pandas as pd
+# import seaborn as sns
+# import matplotlib.pyplot as plt
+# import numpy as np
+
 
 load_dotenv()
 
 API_KEY = os.environ.get('GOOGLE_MAPS_API_KEY')
 
-ACCESS_TOKEN = os.environ["access_token"]
-headers = {"Authorization": f"Bearer {ACCESS_TOKEN}"}
+# ACCESS_TOKEN = os.environ["access_token"]
+# headers = {"Authorization": f"Bearer {ACCESS_TOKEN}"}
 
 
 # Define background images
@@ -311,19 +315,20 @@ def analytics_page():
         st.markdown(f'<style>{f.read()}</style>', unsafe_allow_html=True)
     
     st.markdown("# TravelBud")
-    st.subheader('Dashboard')    
+    st.subheader('Admin Dashboard - Welcome!')    
     # st.sidebar.markdown("# Page 3 🎉")
     st.sidebar.button("Logout")
     
     try:
         fastapi_url="http://localhost:8000/get_useract_data"
-        response=requests.get(fastapi_url,headers=headers)
+        response=requests.get(fastapi_url)
+        print(response.status_code)
     except:
         print('user activity data not yet generated') 
         
     def convert_to_date(date_string,format):
     
-        date_object = datetime.strptime(date_string, "%Y-%m-%d %H:%M:%S.%f")
+        date_object = datetime.strptime(date_string.replace('T', ' '), "%Y-%m-%d %H:%M:%S")
         
         if format=='date':
             return date_object.date().strftime('%Y-%m-%d')
@@ -334,43 +339,42 @@ def analytics_page():
         elif format=='week':
             return date_object.isocalendar()[1]
 
-    def user_act_data():
+    # def user_act_data():
         
-        
-        last_date = datetime.strptime(user_activity['time_stamp'].iloc[-1], '%Y-%m-%d %H:%M:%S.%f')
-        time_diff = datetime.utcnow() - last_date
-        if time_diff <= timedelta(days=30):
-            api_hits=user_activity['hit_count'].iloc[-1]
-            rem_limit=user_activity['api_limit'].iloc[-1]-api_hits
-        else:
-            api_hits=0
-            rem_limit=user_activity['api_limit'].iloc[-1]
+    #     last_date = datetime.strptime(user_activity['time_stamp'].iloc[-1].replace('T', ' '), '%Y-%m-%d %H:%M:%S')
+    #     time_diff = datetime.utcnow() - last_date
+    #     if time_diff <= timedelta(days=30):
+    #         api_hits=user_activity['hit_count'].iloc[-1]
+    #         rem_limit=user_activity['api_limit'].iloc[-1]-api_hits
+    #     else:
+    #         api_hits=0
+    #         rem_limit=user_activity['api_limit'].iloc[-1]
                 
-        return api_hits,rem_limit
+    #     return api_hits,rem_limit
 
     def data_charts(timeframe):
         
         if timeframe=='Day':
             # print(user_data.columns)
             
-            daily_count = user_activity.groupby(['date_str'],as_index=False).agg({'date': 'count'})
+            daily_count = user_activity.groupby(['date_str'],as_index=False).agg({'time_stamp': 'count'})
             daily_count = daily_count.reset_index()
-            daily_count = daily_count.rename(columns={'date': 'API Hits'})
+            daily_count = daily_count.rename(columns={'time_stamp': 'API Hits'})
             # print('y')
             return daily_count
         
         elif timeframe=='Week':
-            week_count = user_activity.groupby(['week']).agg({'date': 'count'})
+            week_count = user_activity.groupby(['week']).agg({'time_stamp': 'count'})
             # reset index and rename columns
             week_count = week_count.reset_index()
-            week_count = week_count.rename(columns={'date': 'API Hits'})
+            week_count = week_count.rename(columns={'time_stamp': 'API Hits'})
             return week_count
         
         elif timeframe=='Month':
-            month_count = user_activity.groupby(['month']).agg({'date': 'count'})
+            month_count = user_activity.groupby(['month']).agg({'time_stamp': 'count'})
             # reset index and rename columns
             month_count = month_count.reset_index()
-            month_count = month_count.rename(columns={'date': 'API Hits'})
+            month_count = month_count.rename(columns={'time_stamp': 'API Hits'})
             return month_count
         
     def make_chart(data,x_axis,y_axis,type,title):
@@ -386,79 +390,98 @@ def analytics_page():
             data=data,
             x=x_axis,
             y=y_axis)
+            
+    def make_maps(data,timeframe):
+        
+        now = datetime.utcnow()
+        
+        if timeframe=='Day':
+            print(data['date_str'].iloc[0])
+            df_map=data[data['date_str'] >= now.strftime('%Y-%m-%d')]
+        elif timeframe == 'Week':
+            df_map=data[data['week'] == now.isocalendar()[1]]
+        elif timeframe == 'Month':
+            df_map=data[data['month'] == now.month]
+
+        st.map(df_map[['lat','lon']])
+
+    def date_chart():
+        grouped_data = user_activity.groupby(['S_Date']).nunique()['UserID']
+        st.markdown('### Preffered Holiday Dates ')
+        st.line_chart(grouped_data)
+
+    # try:
+    if response.status_code==200:
+        
+        # print(response.json())
+        plan_json=response.json()['plan']
+        df_plan = pd.DataFrame(plan_json)
+        aoi_json=response.json()['aoi']
+        df_aoi = pd.DataFrame(aoi_json)
+        
+        user_data_json=response.json()['user_data']
+        user_data = pd.DataFrame(user_data_json)
+        
+        user_act_json=response.json()['user_activity']
+        # print(user_data_json['data'])
+        user_activity = pd.DataFrame(user_act_json)
+        user_activity['date_str']=user_activity['time_stamp'].apply(convert_to_date,args=('date',))
+        user_activity= user_activity.merge(user_data[['UserID','Plan']],on='UserID',how='left')
+        user_activity= user_activity.merge(df_plan,left_on='Plan',right_on='plan_name',how='left')
+        user_activity['hour']=user_activity['time_stamp'].apply(convert_to_date,args=('hour',))
+        user_activity['month']=user_activity['time_stamp'].apply(convert_to_date,args=('month',)) 
+        user_activity['week']=user_activity['time_stamp'].apply(convert_to_date,args=('week',))
+        airports=airportsdata.load('IATA')
+        user_activity['lat']=user_activity['Source'].apply(lambda x: airports[x[-4:-1]]['lat'])
+        user_activity['lon']=user_activity['Source'].apply(lambda x: airports[x[-4:-1]]['lon'])
+        
+        
+    else:
+        st.error("You haven't yet used our application")
+        user_data=pd.DataFrame(columns=['UserID', 'Password', 'Name', 'Plan'])
+        user_activity=pd.DataFrame(columns=['UserID', 'Source', 'Destination', 'S_Date', 'E_Date', 'Duration', 'Budget', 'TotalPeople', 'PlacesToVisit', 'time_stamp','hit_count','date_str','api_limit','hour','month','week','lat','lon'])
+        df_plan=pd.DataFrame(columns=['plan_name', 'api_limit'])
+        df_aoi=pd.DataFrame(columns=['UserID', 'Interest'])
     
+     # Row B
+    b1, b2, b3, b4 = st.columns(4)
+    b1.metric("Total Users", user_data['UserID'].nunique())
+    b2.metric("Basic Users", user_data[user_data['Plan']=='Basic']['UserID'].nunique() )
+    b3.metric("Standard Users", user_data[user_data['Plan']=='Standard']['UserID'].nunique())
+    b4.metric("Premium Users", user_data[user_data['Plan']=='Premium']['UserID'].nunique())
+
+    view_selection = st.radio("View by:",
+            options=["Day", "Week", "Month"],
+            horizontal=True
+        )
+
+    make_maps(user_activity,view_selection)
     
+    if view_selection=="Day":
+        data=data_charts('Day')
+        recent_date=data['date_str'].iloc[-1]
+        recent_data=data[data['date_str']==recent_date]
+        all_data = data.groupby(['date_str'],as_index=False).agg({'API Hits': 'sum'})
+        all_data = all_data.reset_index()
+        # all_data = all_data.rename(columns={'date': 'API Hits'})
+        make_chart(all_data,'date_str','API Hits','bar','### APP Usage - Daily')
+    elif view_selection=="Week":
+        data=data_charts('Week')
+        recent_date=data['week'].iloc[-1]
+        recent_data=data[data['week']==recent_date]
+        make_chart(recent_data,'week','API Hits','bar','### APP Usage - Weekly ')
+    elif view_selection=="Month":
+        data=data_charts('Month')
+        recent_date=data['month'].iloc[-1]
+        recent_data=data[data['month']==recent_date]
+        make_chart(recent_data,'month','API Hits','bar','### APP Usage - Monthly ')
+        
+    # except:
+    #     print('empty table error')
 
-    try:
-        if response.status_code==200:
-            
-            plan_json=response.json()['plan']
-            df_plan = pd.DataFrame(plan_json)
-            aoi_json=response.json()['aoi']
-            df_aoi = pd.DataFrame(aoi_json)
-            
-            user_data_json=response.json()['user_data']
-            user_data = pd.DataFrame(user_data_json)
-            
-            user_act_json=response.json()['user_activity']
-            # print(user_data_json['data'])
-            user_activity = pd.DataFrame(user_act_json)
-            user_activity['date_str']=user_activity['time_stamp'].apply(convert_to_date,args=('date',))
-            user_activity.merge(df_plan,on='UserID',how='left',inplace=True)
-            user_activity['hour']=user_activity['time_stamp'].apply(convert_to_date,args=('hour',))
-            user_activity['month']=user_activity['time_stamp'].apply(convert_to_date,args=('month',)) 
-            user_activity['week']=user_activity['time_stamp'].apply(convert_to_date,args=('week',))
-            
-            
-        else:
-            st.error("You haven't yet used our application")
-            user_data=pd.DataFrame(columns=['UserID', 'Password', 'Name', 'Plan'])
-            user_activity=pd.DataFrame(columns=['UserID', 'Source', 'Destination', 'S_Date', 'E_Date', 'Duration', 'Budget', 'TotalPeople', 'PlacesToVisit', 'time_stamp','hit_count','date_str','api_limit','hour','month','week'])
-            df_plan=pd.DataFrame(columns=['plan_name', 'api_limit'])
-            df_aoi=pd.DataFrame(columns=['UserID', 'Interest'])
-            
-        st.text('Your current plan - ' + str(user_data['Plan'].iloc[-1]))
-
-        api_hits=0
-        rem_limit=0
-        b1, b2 = st.columns(2)
-        b1.metric("API HITs", user_act_data()[0])
-        b2.metric("Remaining limit", user_act_data()[1])
-
-        view_selection = st.radio("View by:",
-                options=["Day", "Week", "Month"],
-                horizontal=True
-            )
-
-        if view_selection=="Day":
-            data=data_charts('Day')
-            recent_date=data['date_str'].iloc[-1]
-            recent_data=data[data['date_str']==recent_date]
-            # print('000000')
-            # print(recent_data)
-            all_data = data.groupby(['date_str'],as_index=False).agg({'API Hits': 'sum'})
-            all_data = all_data.reset_index()
-            # all_data = all_data.rename(columns={'date': 'API Hits'})
-            col1, col2 = st.columns(2)
-            with col1:
-                make_chart(recent_data,'api_name','API Hits','bar','### API Usage - Modules ')
-            with col2:    
-                make_chart(all_data,'date_str','API Hits','bar','### API Usage - Total')
-        elif view_selection=="Week":
-            data=data_charts('Week')
-            recent_date=data['week'].iloc[-1]
-            recent_data=data[data['week']==recent_date]
-            make_chart(recent_data,'api_name','API Hits','bar','### API Usage - Modules ')
-        elif view_selection=="Month":
-            data=data_charts('Month')
-            recent_date=data['month'].iloc[-1]
-            recent_data=data[data['month']==recent_date]
-            make_chart(recent_data,'api_name','API Hits','bar','### API Usage - Modules ')
-            
-    except:
-        print('empty table error')
-
-
+    date_chart()
+    st.markdown('### Budget Distribution')
+    st.line_chart(user_activity['Budget'])
 
 page_names_to_funcs = {
     "Home": home_page,

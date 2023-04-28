@@ -10,7 +10,6 @@ class DB:
     
     def __init__(self):
         self.engine=create_engine('postgresql://'+str(os.environ.get('DB_USER_NAME'))+':'+str(os.environ.get('DB_PASSWORD'))+'@'+str(os.environ.get('DB_HOST'))+':5432/'+str(os.environ.get('DB_NAME')))
-        return self.engine
     
     def runQuery(self, query):
         with self.engine.connect() as conn:
